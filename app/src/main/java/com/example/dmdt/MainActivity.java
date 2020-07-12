@@ -9,7 +9,9 @@ import androidx.fragment.app.FragmentActivity;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.location.Location;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.widget.Toast;
@@ -29,8 +31,22 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.PolylineOptions;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 
 public class MainActivity extends FragmentActivity implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks,
         GoogleApiClient.OnConnectionFailedListener, LocationListener {
@@ -42,6 +58,7 @@ public class MainActivity extends FragmentActivity implements OnMapReadyCallback
     private GoogleApiClient googleApiClient;
     private Location lastLocation;
     private Marker currentUserLocationMarker;
+    ArrayList<LatLng> locations;
 
 
 
@@ -49,6 +66,7 @@ public class MainActivity extends FragmentActivity implements OnMapReadyCallback
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        locations=new ArrayList<>();
 
         if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.N){
             checkUserLocPermission();
@@ -78,6 +96,12 @@ public class MainActivity extends FragmentActivity implements OnMapReadyCallback
         mMap.addMarker(new MarkerOptions().position(gateway).title("Gateway of India").
                 icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET)));
         mMap.moveCamera(CameraUpdateFactory.newLatLng(gateway));
+        locations.add(gateway);
+
+        String url=getRequestUrl(locations.get(0),locations.get(1));
+
+        TaskRequestDirection taskRequestDirection=new TaskRequestDirection();
+        taskRequestDirection.execute(url);
 
 
 
@@ -131,6 +155,28 @@ public class MainActivity extends FragmentActivity implements OnMapReadyCallback
         }
 
     }
+    @Override
+    public void onLocationChanged(Location location) {
+        lastLocation = location;
+        if (currentUserLocationMarker != null) {
+            currentUserLocationMarker.remove();
+            LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
+            MarkerOptions markerOptions = new MarkerOptions();
+            markerOptions.position(latLng);
+            locations.add(latLng);
+            markerOptions.title("User Current Loc");
+            markerOptions.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET));
+            currentUserLocationMarker = mMap.addMarker(markerOptions);
+            mMap.moveCamera(CameraUpdateFactory.newLatLng(latLng));
+            mMap.animateCamera(CameraUpdateFactory.zoomBy(12));
+            Toast.makeText(getApplicationContext(), "Yes", Toast.LENGTH_SHORT).show();
+
+            if (googleApiClient != null) {
+                LocationServices.FusedLocationApi.removeLocationUpdates(googleApiClient, this);
+            }
+
+        }
+    }
 
 
 
@@ -158,28 +204,142 @@ public class MainActivity extends FragmentActivity implements OnMapReadyCallback
 
     }
 
-    @Override
-    public void onLocationChanged(Location location) {
-        lastLocation=location;
-        if(currentUserLocationMarker!=null){
-            currentUserLocationMarker.remove();
-            LatLng latLng=new LatLng(location.getLatitude(),location.getLongitude());
-            MarkerOptions markerOptions=new MarkerOptions();
-            markerOptions.position(latLng);
-            markerOptions.title("User Current Loc");
-            markerOptions.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET));
-            currentUserLocationMarker=mMap.addMarker(markerOptions);
-            mMap.moveCamera(CameraUpdateFactory.newLatLng(latLng));
-            mMap.animateCamera(CameraUpdateFactory.zoomBy(12));
-            Toast.makeText(getApplicationContext(),"Yes",Toast.LENGTH_SHORT).show();
+    private String getRequestUrl(LatLng latLng, LatLng latLng1) {
 
-            if(googleApiClient!=null){
-                LocationServices.FusedLocationApi.removeLocationUpdates(googleApiClient,this);
+        String org="origin="+latLng.latitude+","+latLng.longitude;
+        String dest="destination="+latLng1.latitude+","+latLng1.longitude;
+
+        String sensor="sensor=false";
+        String mode="mode=driving";
+
+        //full param
+        String param=org+"&"+dest+"&"+sensor+"&"+mode;
+
+        String output="json";
+
+        String url="https://maps.googleapis.com/maps/api/directions/"+output+"?"+param;
+
+        return url;
+    }
+
+    private String requestDirections(String reqUrl) throws IOException {
+        String responseString="";
+        InputStream inputStream=null;
+        HttpURLConnection httpURLConnection=null;
+        try {
+            URL url = new URL(reqUrl);
+
+            httpURLConnection = (HttpURLConnection) url.openConnection();
+
+            inputStream = httpURLConnection.getInputStream();
+            InputStreamReader inputStreamReader = new InputStreamReader(inputStream);
+            BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
+
+            StringBuffer stringBuffer=new StringBuffer();
+            String line="";
+
+            while((line=bufferedReader.readLine())!=null){
+                stringBuffer.append(line);
             }
 
+            responseString=stringBuffer.toString();
+            bufferedReader.close();
+            inputStreamReader.close();
         }
+        catch (Exception e){
+            e.printStackTrace();
 
+        }
+        finally {
+            if(inputStream!=null){
+                inputStream.close();
+            }
+
+            httpURLConnection.disconnect();
+
+        }
+        return responseString;
     }
 
 
+    public class TaskRequestDirection extends AsyncTask<String,Void,String> {
+
+        @Override
+        protected String doInBackground(String... strings) {
+            String responseString="";
+            try{
+                responseString=requestDirections(strings[0]);
+            }
+            catch (Exception e){
+                e.printStackTrace();
+            }
+
+            return responseString;
+        }
+
+        @Override
+        protected void onPostExecute(String s) {
+            super.onPostExecute(s);
+            TaskParser taskParser=new TaskParser();
+            taskParser.execute(s);
+
+        }
+    }
+
+    public class TaskParser extends AsyncTask<String,Void, List<List<HashMap<String,String>>> >{
+
+        @Override
+        protected List<List<HashMap<String, String>>> doInBackground(String... strings) {
+            JSONObject jsonObject=null;
+            List<List<HashMap<String,String>>> routes=null;
+            try {
+                jsonObject=new JSONObject(strings[0]);
+                DirectionsParser directionsParser=new DirectionsParser();
+                routes=directionsParser.parse(jsonObject);
+
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return routes;
+
+        }
+
+        @Override
+        protected void onPostExecute(List<List<HashMap<String, String>>> lists) {
+            ArrayList points=null;
+            PolylineOptions polylineOptions=null;
+
+            for(List<HashMap<String, String>> path :lists){
+                points=new ArrayList();
+                polylineOptions=new PolylineOptions();
+
+                for(HashMap<String ,String> point:path){
+                    double lat=Double.parseDouble(point.get("lat"));
+                    double lon=Double.parseDouble(point.get("lon"));
+
+                    points.add(new LatLng(lat,lon));
+
+                }
+                polylineOptions.addAll(points);
+                polylineOptions.width(15);
+                polylineOptions.color(Color.BLUE);
+                polylineOptions.geodesic(true);
+            }
+
+            if(polylineOptions!=null){
+                mMap.addPolyline(polylineOptions);
+            }
+            else{
+                Toast.makeText(getApplicationContext(),"Direction Not Found",Toast.LENGTH_LONG).show();
+            }
+
+        }
+    }
+
+
+
+
 }
+
+
+
