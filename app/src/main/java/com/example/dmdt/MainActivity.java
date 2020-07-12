@@ -56,9 +56,10 @@ public class MainActivity extends FragmentActivity implements OnMapReadyCallback
 
     private static final int Request_User_Location_Code=99;
     private GoogleApiClient googleApiClient;
-    private Location lastLocation;
+    private Location lastLocation,myLoc;
     private Marker currentUserLocationMarker;
     ArrayList<LatLng> locations;
+    private FusedLocationProviderClient fusedLocationProviderClient;
 
 
 
@@ -71,8 +72,19 @@ public class MainActivity extends FragmentActivity implements OnMapReadyCallback
         if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.N){
             checkUserLocPermission();
         }
-        SupportMapFragment supportMapFragment=(SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.google_map);
-        supportMapFragment.getMapAsync(MainActivity.this);
+
+        fusedLocationProviderClient=LocationServices.getFusedLocationProviderClient(this);
+        Task<Location> task=fusedLocationProviderClient.getLastLocation();
+        task.addOnSuccessListener(new OnSuccessListener<Location>() {
+            @Override
+            public void onSuccess(Location location) {
+                myLoc=location;
+                SupportMapFragment supportMapFragment=(SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.google_map);
+                supportMapFragment.getMapAsync(MainActivity.this);
+
+            }
+        });
+
 
 
     }
@@ -91,6 +103,14 @@ public class MainActivity extends FragmentActivity implements OnMapReadyCallback
             mMap.setMyLocationEnabled(true);
 
         }
+
+
+        LatLng myLocation=new LatLng(myLoc.getLatitude(),myLoc.getLongitude());
+        mMap.addMarker(new MarkerOptions().position(myLocation).title("My Location").
+                icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET)));
+
+        locations.add(myLocation);
+
 
         LatLng gateway=new LatLng(18.9219841,72.8346543);
         mMap.addMarker(new MarkerOptions().position(gateway).title("Gateway of India").
